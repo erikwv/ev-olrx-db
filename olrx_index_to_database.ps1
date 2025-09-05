@@ -4,7 +4,7 @@
 
 param(
     [string]$FolderPath,
-    [string]$DatabasePath = "F:\olrx_scan.db",
+    [string]$DatabasePath = "C:\Omnicell\OmniLinkRx\olrx_scan.db",
     [string]$Sqlite3Path = "C:\sqlite3\sqlite3.exe",
     [switch]$ForceReindex = $false,
     [switch]$Recursive = $true

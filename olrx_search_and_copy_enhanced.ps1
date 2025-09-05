@@ -3,9 +3,9 @@
 # Enhanced with better validation, logging, and user interface
 
 param(
-    [string]$DatabasePath = "F:\olrx_scan.db",
+    [string]$DatabasePath = "C:\Omnicell\OmniLinkRx\olrx_scan.db",
     [string]$Sqlite3Path = "C:\sqlite3\sqlite3.exe",
-    [string]$BaseLocation = "F:\MRN_matches"
+    [string]$BaseLocation = "C:\Omnicell\OmniLinkRx\MRN_matches"
 )
 
 # Load required assemblies for GUI functionality

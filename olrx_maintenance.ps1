@@ -2,7 +2,7 @@
 # Performs routine maintenance tasks on the OLRX database
 
 param(
-    [string]$DatabasePath = "F:\olrx_scan.db",
+    [string]$DatabasePath = "C:\Omnicell\OmniLinkRx\olrx_scan.db",
     [string]$Sqlite3Path = "C:\sqlite3\sqlite3.exe",
     [switch]$FullMaintenance = $false,
     [switch]$ShowStats = $false,

@@ -2,7 +2,7 @@
 # Creates a fresh database with minimal complexity
 
 param(
-    [string]$DatabasePath = "F:\olrx_scan_new.db",
+    [string]$DatabasePath = "C:\Omnicell\OmniLinkRx\olrx_scan.db",
     [string]$Sqlite3Path = "C:\sqlite3\sqlite3.exe"
 )
 
