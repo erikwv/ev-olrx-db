@@ -135,33 +135,33 @@ try {
     
     # Execute index creation (one by one for better error handling)
     $indexes = @(
-        "CREATE INDEX IF NOT EXISTS idx_mrn ON OLRXScans(mrn);",
-        "CREATE INDEX IF NOT EXISTS idx_account ON OLRXScans(account);",
-        "CREATE INDEX IF NOT EXISTS idx_last_name ON OLRXScans(last_name);",
-        "CREATE INDEX IF NOT EXISTS idx_admission_date ON OLRXScans(admission_date);",
-        "CREATE INDEX IF NOT EXISTS idx_discharge_date ON OLRXScans(discharge_date);",
-        "CREATE INDEX IF NOT EXISTS idx_file_hash ON OLRXScans(file_hash);",
-        "CREATE INDEX IF NOT EXISTS idx_date_indexed ON OLRXScans(date_indexed);"
+        'CREATE INDEX IF NOT EXISTS idx_mrn ON OLRXScans(mrn);',
+        'CREATE INDEX IF NOT EXISTS idx_account ON OLRXScans(account);',
+        'CREATE INDEX IF NOT EXISTS idx_last_name ON OLRXScans(last_name);',
+        'CREATE INDEX IF NOT EXISTS idx_admission_date ON OLRXScans(admission_date);',
+        'CREATE INDEX IF NOT EXISTS idx_discharge_date ON OLRXScans(discharge_date);',
+        'CREATE INDEX IF NOT EXISTS idx_file_hash ON OLRXScans(file_hash);',
+        'CREATE INDEX IF NOT EXISTS idx_date_indexed ON OLRXScans(date_indexed);'
     )
     
     foreach ($index in $indexes) {
-        Invoke-SqliteCommand $index "Create index" | Out-Null
+        Invoke-SqliteCommand $index 'Create index' | Out-Null
     }
-    Write-Host "✓ Created database indexes" -ForegroundColor Green
+    Write-Host 'Created database indexes' -ForegroundColor Green
     
     # Execute log table creation
-    Invoke-SqliteCommand $createLogTableSQL "Create processing_log table" | Out-Null
-    Write-Host "✓ Created processing_log table" -ForegroundColor Green
+    Invoke-SqliteCommand $createLogTableSQL 'Create processing_log table' | Out-Null
+    Write-Host 'Created processing_log table' -ForegroundColor Green
     
     # Test database functionality
-    Write-Host "Testing database functionality..." -ForegroundColor Yellow
-    $testResult = Invoke-SqliteCommand "SELECT COUNT(*) FROM OLRXScans;" "Test query"
-    Write-Host "✓ Database is functional (contains $testResult records)" -ForegroundColor Green
+    Write-Host 'Testing database functionality...' -ForegroundColor Yellow
+    $testResult = Invoke-SqliteCommand 'SELECT COUNT(*) FROM OLRXScans;' 'Test query'
+    Write-Host "Database is functional (contains $testResult records)" -ForegroundColor Green
     
     # Run integrity check
-    $integrityResult = Invoke-SqliteCommand "PRAGMA integrity_check;" "Integrity check"
-    if ($integrityResult -eq "ok") {
-        Write-Host "✓ Database integrity verified" -ForegroundColor Green
+    $integrityResult = Invoke-SqliteCommand 'PRAGMA integrity_check;' 'Integrity check'
+    if ($integrityResult -eq 'ok') {
+        Write-Host 'Database integrity verified' -ForegroundColor Green
     } else {
         Write-Warning "Database integrity issue: $integrityResult"
     }
