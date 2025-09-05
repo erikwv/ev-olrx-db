@@ -34,7 +34,7 @@ function Get-BinaryText {
         return $BinaryText
     }
     catch {
-        Write-Warning "Failed to read binary content from $Path: $_"
+        Write-Warning "Failed to read binary content from $Path : $_"
         return $null
     }
 }
@@ -198,7 +198,7 @@ INSERT INTO OLRXScans (
         return $true
     }
     catch {
-        Write-Warning "Failed to add database record for $PdfPath: $_"
+        Write-Warning "Failed to add database record for $PdfPath : $_"
         return $false
     }
 }
