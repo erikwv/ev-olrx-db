@@ -40,7 +40,7 @@ function Invoke-SqliteCommand {
         return $result
     }
     catch {
-        Write-Error "Failed to execute $Description`: $_"
+        Write-Error "Failed to execute $Description : $_"
         throw
     }
 }
@@ -101,17 +101,6 @@ CREATE TABLE IF NOT EXISTS OLRXScans (
 );
 "@
 
-# SQL to create indexes for better query performance
-$createIndexesSQL = @"
-CREATE INDEX IF NOT EXISTS idx_mrn ON OLRXScans(mrn);
-CREATE INDEX IF NOT EXISTS idx_account ON OLRXScans(account);
-CREATE INDEX IF NOT EXISTS idx_last_name ON OLRXScans(last_name);
-CREATE INDEX IF NOT EXISTS idx_admission_date ON OLRXScans(admission_date);
-CREATE INDEX IF NOT EXISTS idx_discharge_date ON OLRXScans(discharge_date);
-CREATE INDEX IF NOT EXISTS idx_file_hash ON OLRXScans(file_hash);
-CREATE INDEX IF NOT EXISTS idx_date_indexed ON OLRXScans(date_indexed);
-"@
-
 # SQL to create a log table for tracking processing
 $createLogTableSQL = @"
 CREATE TABLE IF NOT EXISTS processing_log (
@@ -131,9 +120,13 @@ try {
     
     # Execute table creation
     Invoke-SqliteCommand $createTableSQL "Create OLRXScans table" | Out-Null
-    Write-Host "✓ Created OLRXScans table" -ForegroundColor Green
+    Write-Host "Created OLRXScans table" -ForegroundColor Green
     
-    # Execute index creation (one by one for better error handling)
+    # Execute log table creation
+    Invoke-SqliteCommand $createLogTableSQL "Create processing_log table" | Out-Null
+    Write-Host "Created processing_log table" -ForegroundColor Green
+    
+    # Create indexes one by one
     $indexes = @(
         'CREATE INDEX IF NOT EXISTS idx_mrn ON OLRXScans(mrn);',
         'CREATE INDEX IF NOT EXISTS idx_account ON OLRXScans(account);',
@@ -145,23 +138,19 @@ try {
     )
     
     foreach ($index in $indexes) {
-        Invoke-SqliteCommand $index 'Create index' | Out-Null
+        Invoke-SqliteCommand $index "Create index" | Out-Null
     }
-    Write-Host 'Created database indexes' -ForegroundColor Green
-    
-    # Execute log table creation
-    Invoke-SqliteCommand $createLogTableSQL 'Create processing_log table' | Out-Null
-    Write-Host 'Created processing_log table' -ForegroundColor Green
+    Write-Host "Created database indexes" -ForegroundColor Green
     
     # Test database functionality
-    Write-Host 'Testing database functionality...' -ForegroundColor Yellow
-    $testResult = Invoke-SqliteCommand 'SELECT COUNT(*) FROM OLRXScans;' 'Test query'
+    Write-Host "Testing database functionality..." -ForegroundColor Yellow
+    $testResult = Invoke-SqliteCommand "SELECT COUNT(*) FROM OLRXScans;" "Test query"
     Write-Host "Database is functional (contains $testResult records)" -ForegroundColor Green
     
     # Run integrity check
-    $integrityResult = Invoke-SqliteCommand 'PRAGMA integrity_check;' 'Integrity check'
-    if ($integrityResult -eq 'ok') {
-        Write-Host 'Database integrity verified' -ForegroundColor Green
+    $integrityResult = Invoke-SqliteCommand "PRAGMA integrity_check;" "Integrity check"
+    if ($integrityResult -eq "ok") {
+        Write-Host "Database integrity verified" -ForegroundColor Green
     } else {
         Write-Warning "Database integrity issue: $integrityResult"
     }
@@ -179,14 +168,14 @@ try {
     }
     
     Write-Host "Next steps:" -ForegroundColor Cyan
-    Write-Host "  1. Run: .\olrx_index_to_database.ps1 -FolderPath 'C:\Your\PDF\Folder'" -ForegroundColor Gray
-    Write-Host "  2. Use: .\olrx_search_and_copy_enhanced.ps1 to search and copy files" -ForegroundColor Gray
+    Write-Host "  1. Run: .\olrx_index_to_database.ps1 -FolderPath 'YourPDFFolder'" -ForegroundColor Gray
+    Write-Host "  2. Use: .\olrx_search_and_copy_enhanced.ps1 to search files" -ForegroundColor Gray
     
 } catch {
     Write-Error "Failed to initialize database: $_"
     Write-Host "Troubleshooting tips:" -ForegroundColor Yellow
     Write-Host "  - Ensure SQLite3 is properly installed" -ForegroundColor Gray
     Write-Host "  - Check that the database directory is writable" -ForegroundColor Gray
-    Write-Host "  - Try running with -ForceRecreate to start fresh" -ForegroundColor Gray
+    Write-Host "  - Try the emergency_db_fix.ps1 script instead" -ForegroundColor Gray
     exit 1
 }
