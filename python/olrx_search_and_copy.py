@@ -422,6 +422,7 @@ def run_search_and_copy(database_path: Path, criteria: SearchCriteria) -> Search
     validate_criteria(criteria)
     criteria.destination_folder.mkdir(parents=True, exist_ok=True)
     logging.info("Starting search against %s", database_path)
+    initialize_database(database_path)
 
     with get_connection(database_path) as connection:
         results = fetch_results(connection, criteria)
@@ -714,6 +715,7 @@ def get_database_status(
             database_path=database_path,
         )
 
+    initialize_database(database_path)
     with get_connection(database_path) as connection:
         total_records = connection.execute("SELECT COUNT(*) FROM OLRXScans").fetchone()[0]
         successful_extractions = connection.execute(
