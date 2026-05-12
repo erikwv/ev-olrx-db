@@ -3,3 +3,4 @@ __pycache__/
 python/dist/
 python/build/
 *.spec
+python/olrx_app.log
