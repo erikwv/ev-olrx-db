@@ -539,6 +539,42 @@ def upsert_database_record(
     patient: PatientData,
     file_hash: str,
 ) -> None:
+    update_cursor = connection.execute(
+        """
+        UPDATE OLRXScans SET
+            file_name = ?,
+            file_size = ?,
+            last_modified = ?,
+            last_name = ?,
+            first_name = ?,
+            mrn = ?,
+            account = ?,
+            admission_date = ?,
+            discharge_date = ?,
+            extraction_success = ?,
+            date_indexed = CURRENT_TIMESTAMP,
+            file_hash = ?
+        WHERE pdf_path = ?
+        """,
+        (
+            file_name,
+            file_size,
+            last_modified.strftime("%Y-%m-%d %H:%M:%S"),
+            patient.last_name,
+            patient.first_name,
+            patient.mrn,
+            patient.account,
+            patient.admission_date,
+            patient.discharge_date,
+            int(patient.success),
+            file_hash,
+            str(pdf_path),
+        ),
+    )
+
+    if update_cursor.rowcount:
+        return
+
     connection.execute(
         """
         INSERT INTO OLRXScans (
@@ -556,19 +592,6 @@ def upsert_database_record(
             date_indexed,
             file_hash
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-        ON CONFLICT(pdf_path) DO UPDATE SET
-            file_name = excluded.file_name,
-            file_size = excluded.file_size,
-            last_modified = excluded.last_modified,
-            last_name = excluded.last_name,
-            first_name = excluded.first_name,
-            mrn = excluded.mrn,
-            account = excluded.account,
-            admission_date = excluded.admission_date,
-            discharge_date = excluded.discharge_date,
-            extraction_success = excluded.extraction_success,
-            date_indexed = CURRENT_TIMESTAMP,
-            file_hash = excluded.file_hash
         """,
         (
             str(pdf_path),
