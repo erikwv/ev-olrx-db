@@ -657,12 +657,12 @@ def update_database_index(
                         f"processed={processed_files} skipped={skipped_files} "
                         f"success={successful_extractions} failed={failed_extractions}"
                     )
-            except Exception:
+            except Exception as exc:
                 failed_extractions += 1
                 logging.exception("Failed to process PDF: %s", pdf_path)
                 if progress_callback:
                     progress_callback(
-                        f"Error processing {pdf_path} | failed={failed_extractions}"
+                        f"Error processing {pdf_path} | {exc} | failed={failed_extractions}"
                     )
 
         notes = (
