@@ -31,7 +31,7 @@ from tkinter import filedialog, messagebox, ttk
 
 DEFAULT_DATABASE_PATH = Path(r"C:\Omnicell\OmniLinkRx\olrx_scan.db")
 DEFAULT_BASE_LOCATION = Path(r"C:\Omnicell\OmniLinkRx\MRN_matches")
-DEFAULT_SOURCE_FOLDER = Path(r"C:\Omnicell\OmniLinkRx")
+DEFAULT_SOURCE_FOLDER = Path("F:\\")
 DEFAULT_REBUILD_THRESHOLD_DAYS = 180
 LOG_FILE_NAME = "olrx_app.log"
 
@@ -622,7 +622,7 @@ def update_database_index(
         for pdf_path in pdf_files:
             total_files += 1
             if progress_callback:
-                progress_callback(f"Indexing {total_files}: {pdf_path.name}")
+                progress_callback(f"Indexing {total_files}: {pdf_path}")
 
             try:
                 stat = pdf_path.stat()
@@ -662,7 +662,7 @@ def update_database_index(
                 logging.exception("Failed to process PDF: %s", pdf_path)
                 if progress_callback:
                     progress_callback(
-                        f"Error processing {pdf_path.name} | failed={failed_extractions}"
+                        f"Error processing {pdf_path} | failed={failed_extractions}"
                     )
 
         notes = (

@@ -1,8 +1,9 @@
 # OLRX Database System
 
-OLRX is a PDF indexing and retrieval workflow backed by SQLite. This repository now separates
-the legacy PowerShell implementation from the newer Python search/copy implementation that can
-be packaged as a standalone Windows executable.
+OLRX is a Python-based PDF indexing and retrieval workflow backed by SQLite.
+The repository now contains a single supported implementation: the Python app
+that can search, copy, and incrementally update the database, and can also be
+packaged as a standalone Windows executable.
 
 ## Repo Layout
 
@@ -11,55 +12,23 @@ ev-olrx-db/
 ├── README.md
 ├── docs/
 │   └── olrx_search_workflow.md
-├── powershell/
-│   ├── init_database.ps1
-│   ├── olrx_index_to_database.ps1
-│   ├── olrx_search_and_copy_enhanced.ps1
-│   ├── olrx_maintenance.ps1
-│   └── ...legacy and repair scripts...
 └── python/
     ├── olrx_search_and_copy.py
     ├── build_olrx_search_and_copy.ps1
     └── requirements-build.txt
 ```
 
-## PowerShell
+## Python App
 
-The `powershell/` directory contains the original operational scripts for database setup,
-indexing, search/copy, maintenance, repair, and legacy variants.
-
-Primary entry points:
-
-- [init_database.ps1](/Users/erik/Projects/ev-olrx-db/powershell/init_database.ps1:1)
-- [olrx_index_to_database.ps1](/Users/erik/Projects/ev-olrx-db/powershell/olrx_index_to_database.ps1:1)
-- [olrx_search_and_copy_enhanced.ps1](/Users/erik/Projects/ev-olrx-db/powershell/olrx_search_and_copy_enhanced.ps1:1)
-- [olrx_maintenance.ps1](/Users/erik/Projects/ev-olrx-db/powershell/olrx_maintenance.ps1:1)
-
-Typical usage:
-
-```powershell
-.\powershell\init_database.ps1
-.\powershell\olrx_index_to_database.ps1 -FolderPath "C:\Path\To\PDFs"
-.\powershell\olrx_search_and_copy_enhanced.ps1
-```
-
-Operational assumptions:
-
-- Windows PowerShell 5.1 or PowerShell Core
-- `sqlite3.exe` installed on the machine
-- Windows Forms available for GUI flows
-
-## Python
-
-The `python/` directory contains the improved search/copy implementation:
+The `python/` directory contains the supported implementation:
 
 - Built-in `sqlite3` instead of `sqlite3.exe`
-- Parameterized SQL queries
 - GUI mode and CLI mode
-- Safe CSV output
-- Unique filenames for copied duplicates
-- Incremental database indexing from the app
+- Incremental database indexing
 - Manual update trigger based on the age of the last index run
+- Search and copy workflow
+- Safe CSV output
+- In-app activity log plus persistent file logging
 - Packaged as a single Windows `.exe`
 
 Primary files:
@@ -68,23 +37,28 @@ Primary files:
 - [build_olrx_search_and_copy.ps1](/Users/erik/Projects/ev-olrx-db/python/build_olrx_search_and_copy.ps1:1)
 - [requirements-build.txt](/Users/erik/Projects/ev-olrx-db/python/requirements-build.txt:1)
 
+## Usage
+
 Run directly with Python:
 
 ```powershell
 python .\python\olrx_search_and_copy.py
 ```
 
-CLI mode:
+Run a search from the CLI:
 
 ```powershell
 python .\python\olrx_search_and_copy.py --no-gui --mrn SM00123456 --last-name Smith
 ```
 
-Run an incremental database update from the same app:
+Run an incremental database update:
 
 ```powershell
 python .\python\olrx_search_and_copy.py --no-gui --update-db --source-folder "C:\Path\To\PDFs"
 ```
+
+The default source folder in the app is `F:\`, and indexing runs recursively, so PDFs stored
+under archive paths such as `F:\FHA Archive 2023\2023.12.31_0` are included automatically.
 
 Force a full reprocess if needed:
 
@@ -92,7 +66,9 @@ Force a full reprocess if needed:
 python .\python\olrx_search_and_copy.py --no-gui --update-db --force-reindex --source-folder "C:\Path\To\PDFs"
 ```
 
-Build the standalone EXE:
+## Windows EXE Build
+
+Build the standalone executable on a Windows machine with Python installed:
 
 ```powershell
 .\python\build_olrx_search_and_copy.ps1
@@ -104,15 +80,17 @@ Build output:
 python\dist\OLRXSearchAndCopy.exe
 ```
 
-Deploy that EXE to the server. The server does not need Python installed.
+Deploy that EXE to the client machine. The client does not need Python installed.
 
-The GUI now includes:
+## GUI Features
 
 - `Search & Copy` for retrieval
 - `Update DB` for manual incremental indexing
-- `DB Status` to show record counts, last index run, and whether the 180-day threshold has been exceeded
-- An in-app activity log so long-running operations are visible while they run
-- A persistent log file at `python\olrx_app.log` during script use or beside the built EXE after packaging
+- `DB Status` to show record counts, last index run, and whether the age threshold has been exceeded
+- In-app activity log for long-running operations
+
+The app also writes a persistent log file at `python\olrx_app.log` during script use, or beside
+the built EXE after packaging.
 
 During CLI database updates, progress messages are written to stdout so you can monitor scan volume,
 processed files, skipped files, and failures while the update is running.
