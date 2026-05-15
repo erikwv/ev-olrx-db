@@ -19,6 +19,7 @@ import shutil
 import sqlite3
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -140,6 +141,28 @@ class PatientData:
 
 
 @dataclass(frozen=True)
+class PreparedPdfMetadata:
+    pdf_path: Path
+    file_size: int
+    last_modified: datetime
+    file_hash: str
+
+
+@dataclass(frozen=True)
+class PreparedPdfResult:
+    pdf_path: Path
+    metadata: PreparedPdfMetadata | None = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class ExtractedPdfResult:
+    metadata: PreparedPdfMetadata
+    patient: PatientData | None = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class IndexSummary:
     source_folder: Path
     total_files: int
@@ -148,6 +171,15 @@ class IndexSummary:
     successful_extractions: int
     failed_extractions: int
     duration_seconds: float
+
+    @property
+    def coverage_verified(self) -> bool:
+        return (
+            self.total_files > 0
+            and self.processed_files == 0
+            and self.skipped_files == self.total_files
+            and self.failed_extractions == 0
+        )
 
 
 @dataclass(frozen=True)
@@ -498,6 +530,31 @@ def file_hash_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def prepare_pdf_metadata(pdf_path: Path) -> PreparedPdfMetadata:
+    stat = pdf_path.stat()
+    return PreparedPdfMetadata(
+        pdf_path=pdf_path,
+        file_size=stat.st_size,
+        last_modified=datetime.fromtimestamp(stat.st_mtime),
+        file_hash=file_hash_sha256(pdf_path),
+    )
+
+
+def prepare_pdf_metadata_result(pdf_path: Path) -> PreparedPdfResult:
+    try:
+        return PreparedPdfResult(pdf_path=pdf_path, metadata=prepare_pdf_metadata(pdf_path))
+    except Exception as exc:
+        return PreparedPdfResult(pdf_path=pdf_path, error=str(exc))
+
+
+def extract_pdf_result(metadata: PreparedPdfMetadata) -> ExtractedPdfResult:
+    try:
+        patient = extract_patient_data(read_binary_text(metadata.pdf_path))
+        return ExtractedPdfResult(metadata=metadata, patient=patient)
+    except Exception as exc:
+        return ExtractedPdfResult(metadata=metadata, error=str(exc))
+
+
 def needs_processing(connection: sqlite3.Connection, file_path: Path, file_hash: str) -> bool:
     row = connection.execute(
         "SELECT id FROM OLRXScans WHERE pdf_path = ? AND file_hash = ?",
@@ -615,10 +672,13 @@ def update_database_index(
     source_folder: Path,
     recursive: bool = True,
     force_reindex: bool = False,
+    max_workers: int = 4,
     progress_callback: Callable[[str], None] | None = None,
 ) -> IndexSummary:
     if not source_folder.exists():
         raise FileNotFoundError(f"Source folder does not exist: {source_folder}")
+    if max_workers < 1:
+        raise ValueError("max_workers must be at least 1")
 
     logging.info(
         "Starting database update: database=%s source=%s recursive=%s force_reindex=%s",
@@ -642,51 +702,89 @@ def update_database_index(
     )
 
     with get_connection(database_path) as connection:
-        for pdf_path in pdf_files:
-            total_files += 1
-            if progress_callback:
-                progress_callback(f"Indexing {total_files}: {pdf_path}")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            pending_extractions: list[PreparedPdfMetadata] = []
+            prepared_results = executor.map(prepare_pdf_metadata_result, pdf_files)
+            for prepared in prepared_results:
+                pdf_path = prepared.pdf_path
+                total_files += 1
+                if progress_callback:
+                    progress_callback(f"Scanning {total_files}: {pdf_path}")
 
-            try:
-                stat = pdf_path.stat()
-                file_hash = file_hash_sha256(pdf_path)
-                if not force_reindex and not needs_processing(connection, pdf_path, file_hash):
-                    skipped_files += 1
-                    if progress_callback and total_files % 100 == 0:
+                if prepared.metadata is None:
+                    failed_extractions += 1
+                    logging.error("Failed to prepare PDF metadata: %s | %s", pdf_path, prepared.error)
+                    if progress_callback:
                         progress_callback(
-                            f"Scanned {total_files} PDFs | processed={processed_files} skipped={skipped_files}"
+                            f"Error processing {pdf_path} | {prepared.error} | failed={failed_extractions}"
                         )
                     continue
 
-                patient = extract_patient_data(read_binary_text(pdf_path))
-                upsert_database_record(
-                    connection=connection,
-                    pdf_path=pdf_path,
-                    file_name=pdf_path.name,
-                    file_size=stat.st_size,
-                    last_modified=datetime.fromtimestamp(stat.st_mtime),
-                    patient=patient,
-                    file_hash=file_hash,
-                )
-                processed_files += 1
-                if patient.success:
-                    successful_extractions += 1
-                else:
+                try:
+                    if not force_reindex and not needs_processing(
+                        connection, pdf_path, prepared.metadata.file_hash
+                    ):
+                        skipped_files += 1
+                        if progress_callback and total_files % 100 == 0:
+                            progress_callback(
+                                f"Scanned {total_files} PDFs | processed={processed_files} skipped={skipped_files}"
+                            )
+                        continue
+
+                    pending_extractions.append(prepared.metadata)
+                except Exception as exc:
                     failed_extractions += 1
-                if progress_callback and (processed_files % 25 == 0 or total_files == len(pdf_files)):
-                    progress_callback(
-                        "Scanned "
-                        f"{total_files}/{len(pdf_files)} PDFs | "
-                        f"processed={processed_files} skipped={skipped_files} "
-                        f"success={successful_extractions} failed={failed_extractions}"
+                    logging.exception("Failed to process PDF: %s", pdf_path)
+                    if progress_callback:
+                        progress_callback(
+                            f"Error processing {pdf_path} | {exc} | failed={failed_extractions}"
+                        )
+
+            extracted_results = executor.map(extract_pdf_result, pending_extractions)
+            for extracted in extracted_results:
+                metadata = extracted.metadata
+                pdf_path = metadata.pdf_path
+                if extracted.patient is None:
+                    failed_extractions += 1
+                    logging.error("Failed to extract PDF data: %s | %s", pdf_path, extracted.error)
+                    if progress_callback:
+                        progress_callback(
+                            f"Error processing {pdf_path} | {extracted.error} | failed={failed_extractions}"
+                        )
+                    continue
+
+                try:
+                    upsert_database_record(
+                        connection=connection,
+                        pdf_path=pdf_path,
+                        file_name=pdf_path.name,
+                        file_size=metadata.file_size,
+                        last_modified=metadata.last_modified,
+                        patient=extracted.patient,
+                        file_hash=metadata.file_hash,
                     )
-            except Exception as exc:
-                failed_extractions += 1
-                logging.exception("Failed to process PDF: %s", pdf_path)
-                if progress_callback:
-                    progress_callback(
-                        f"Error processing {pdf_path} | {exc} | failed={failed_extractions}"
-                    )
+                    processed_files += 1
+                    if extracted.patient.success:
+                        successful_extractions += 1
+                    else:
+                        failed_extractions += 1
+                    if progress_callback and (
+                        processed_files % 25 == 0
+                        or processed_files == len(pending_extractions)
+                    ):
+                        progress_callback(
+                            "Scanned "
+                            f"{total_files}/{len(pdf_files)} PDFs | "
+                            f"processed={processed_files} skipped={skipped_files} "
+                            f"success={successful_extractions} failed={failed_extractions}"
+                        )
+                except Exception as exc:
+                    failed_extractions += 1
+                    logging.exception("Failed to process PDF: %s", pdf_path)
+                    if progress_callback:
+                        progress_callback(
+                            f"Error processing {pdf_path} | {exc} | failed={failed_extractions}"
+                        )
 
         notes = (
             f"Source: {source_folder} | Recursive: {recursive} | ForceReindex: {force_reindex}"
@@ -797,6 +895,12 @@ def format_database_status(status: DatabaseStatus, threshold_days: int) -> str:
         f"Update threshold: {threshold_days} days | Update due: {'Yes' if status.update_due else 'No'}"
     )
     return "\n".join(lines)
+
+
+def format_coverage_message(summary: IndexSummary) -> str:
+    if summary.coverage_verified:
+        return "Coverage verified: all scanned PDFs were already present and unchanged."
+    return "Coverage not fully verified: new, changed, or failed files were encountered."
 
 
 class OLRXSearchApp:
@@ -1146,11 +1250,13 @@ class OLRXSearchApp:
         )
 
     def _finish_index_update(self, summary: IndexSummary) -> None:
+        coverage_message = format_coverage_message(summary)
         self._append_log(
             "Database update completed | "
             f"scanned={summary.total_files} processed={summary.processed_files} "
             f"skipped={summary.skipped_files} success={summary.successful_extractions} "
-            f"failed={summary.failed_extractions} duration={summary.duration_seconds:.1f}s"
+            f"failed={summary.failed_extractions} duration={summary.duration_seconds:.1f}s | "
+            f"{coverage_message}"
         )
         messagebox.showinfo(
             "Database Update Complete",
@@ -1162,6 +1268,7 @@ class OLRXSearchApp:
                     f"Files skipped as unchanged: {summary.skipped_files}",
                     f"Successful extractions: {summary.successful_extractions}",
                     f"Failed/no-data files: {summary.failed_extractions}",
+                    coverage_message,
                     f"Duration: {summary.duration_seconds:.1f} seconds",
                     f"App log: {LOG_PATH}",
                 )
@@ -1225,6 +1332,7 @@ def run_cli(database_path: Path, base_location: Path, source_folder: Path, args:
         print(f"Files skipped as unchanged: {summary.skipped_files}")
         print(f"Successful extractions: {summary.successful_extractions}")
         print(f"Failed/no-data files: {summary.failed_extractions}")
+        print(format_coverage_message(summary))
         print(f"Duration: {summary.duration_seconds:.1f} seconds")
         return 0
 
