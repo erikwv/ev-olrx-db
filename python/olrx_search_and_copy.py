@@ -19,6 +19,7 @@ import shutil
 import sqlite3
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -171,6 +172,10 @@ class IndexSummary:
     successful_extractions: int
     failed_extractions: int
     duration_seconds: float
+    enumeration_seconds: float
+    metadata_seconds: float
+    extraction_seconds: float
+    database_seconds: float
 
     @property
     def coverage_verified(self) -> bool:
@@ -695,15 +700,21 @@ def update_database_index(
     successful_extractions = 0
     failed_extractions = 0
 
+    enumeration_started = time.perf_counter()
     pdf_files = (
         sorted(source_folder.rglob("*.pdf"))
         if recursive
         else sorted(source_folder.glob("*.pdf"))
     )
+    enumeration_seconds = time.perf_counter() - enumeration_started
+    metadata_seconds = 0.0
+    extraction_seconds = 0.0
+    database_seconds = 0.0
 
     with get_connection(database_path) as connection:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pending_extractions: list[PreparedPdfMetadata] = []
+            metadata_started = time.perf_counter()
             prepared_results = executor.map(prepare_pdf_metadata_result, pdf_files)
             for prepared in prepared_results:
                 pdf_path = prepared.pdf_path
@@ -721,9 +732,11 @@ def update_database_index(
                     continue
 
                 try:
+                    database_started = time.perf_counter()
                     if not force_reindex and not needs_processing(
                         connection, pdf_path, prepared.metadata.file_hash
                     ):
+                        database_seconds += time.perf_counter() - database_started
                         skipped_files += 1
                         if progress_callback and total_files % 100 == 0:
                             progress_callback(
@@ -731,15 +744,19 @@ def update_database_index(
                             )
                         continue
 
+                    database_seconds += time.perf_counter() - database_started
                     pending_extractions.append(prepared.metadata)
                 except Exception as exc:
+                    database_seconds += time.perf_counter() - database_started
                     failed_extractions += 1
                     logging.exception("Failed to process PDF: %s", pdf_path)
                     if progress_callback:
                         progress_callback(
                             f"Error processing {pdf_path} | {exc} | failed={failed_extractions}"
                         )
+            metadata_seconds = time.perf_counter() - metadata_started
 
+            extraction_started = time.perf_counter()
             extracted_results = executor.map(extract_pdf_result, pending_extractions)
             for extracted in extracted_results:
                 metadata = extracted.metadata
@@ -754,6 +771,7 @@ def update_database_index(
                     continue
 
                 try:
+                    database_started = time.perf_counter()
                     upsert_database_record(
                         connection=connection,
                         pdf_path=pdf_path,
@@ -763,6 +781,7 @@ def update_database_index(
                         patient=extracted.patient,
                         file_hash=metadata.file_hash,
                     )
+                    database_seconds += time.perf_counter() - database_started
                     processed_files += 1
                     if extracted.patient.success:
                         successful_extractions += 1
@@ -779,12 +798,14 @@ def update_database_index(
                             f"success={successful_extractions} failed={failed_extractions}"
                         )
                 except Exception as exc:
+                    database_seconds += time.perf_counter() - database_started
                     failed_extractions += 1
                     logging.exception("Failed to process PDF: %s", pdf_path)
                     if progress_callback:
                         progress_callback(
                             f"Error processing {pdf_path} | {exc} | failed={failed_extractions}"
                         )
+            extraction_seconds = time.perf_counter() - extraction_started
 
         notes = (
             f"Source: {source_folder} | Recursive: {recursive} | ForceReindex: {force_reindex}"
@@ -817,6 +838,10 @@ def update_database_index(
         successful_extractions=successful_extractions,
         failed_extractions=failed_extractions,
         duration_seconds=duration_seconds,
+        enumeration_seconds=enumeration_seconds,
+        metadata_seconds=metadata_seconds,
+        extraction_seconds=extraction_seconds,
+        database_seconds=database_seconds,
     )
 
 
@@ -901,6 +926,15 @@ def format_coverage_message(summary: IndexSummary) -> str:
     if summary.coverage_verified:
         return "Coverage verified: all scanned PDFs were already present and unchanged."
     return "Coverage not fully verified: new, changed, or failed files were encountered."
+
+
+def format_index_timing(summary: IndexSummary) -> tuple[str, ...]:
+    return (
+        f"Enumeration time: {summary.enumeration_seconds:.1f} seconds",
+        f"Metadata/hash time: {summary.metadata_seconds:.1f} seconds",
+        f"Extraction time: {summary.extraction_seconds:.1f} seconds",
+        f"Database time: {summary.database_seconds:.1f} seconds",
+    )
 
 
 class OLRXSearchApp:
@@ -1251,6 +1285,7 @@ class OLRXSearchApp:
 
     def _finish_index_update(self, summary: IndexSummary) -> None:
         coverage_message = format_coverage_message(summary)
+        timing_lines = format_index_timing(summary)
         self._append_log(
             "Database update completed | "
             f"scanned={summary.total_files} processed={summary.processed_files} "
@@ -1269,6 +1304,7 @@ class OLRXSearchApp:
                     f"Successful extractions: {summary.successful_extractions}",
                     f"Failed/no-data files: {summary.failed_extractions}",
                     coverage_message,
+                    *timing_lines,
                     f"Duration: {summary.duration_seconds:.1f} seconds",
                     f"App log: {LOG_PATH}",
                 )
@@ -1333,6 +1369,8 @@ def run_cli(database_path: Path, base_location: Path, source_folder: Path, args:
         print(f"Successful extractions: {summary.successful_extractions}")
         print(f"Failed/no-data files: {summary.failed_extractions}")
         print(format_coverage_message(summary))
+        for line in format_index_timing(summary):
+            print(line)
         print(f"Duration: {summary.duration_seconds:.1f} seconds")
         return 0
 
